@@ -29,10 +29,11 @@ class CreateTasks(MethodResource, Resource):
             return make_response(jsonify(result='the request cannot be empty'), 400)
 
         tasks = request.json
+        tasks_dict = {int(task['id']): task for task in tasks}
         tasks_db = Task.query.options(load_only('archive')).all()
         task_id_json = [int(task['id']) for task in tasks]
         task_id_db = [task.id for task in tasks_db]
-        
+
         task_to_send = []
 
         task_id_db_not_archive = [task.id for task in tasks_db if task.archive == False]
@@ -43,12 +44,12 @@ class CreateTasks(MethodResource, Resource):
         task_id_db_archive = list(set(task_id_db) - set(task_id_db_not_archive))
         task_for_unarchive = list(set(task_id_db_archive) & set(task_id_json))
         unarchive_records = [task for task in tasks_db if task.id in task_for_unarchive]
-        self.__unarchive_tasks(unarchive_records, task_to_send)
-        
+        self.__unarchive_tasks(unarchive_records, task_to_send, tasks_dict)
+
         task_for_adding_db = list(set(task_id_json) - set(task_id_db))
         tasks_to_add = [task for task in tasks if int(task['id']) in task_for_adding_db]
         self.__add_tasks(tasks_to_add, task_to_send)
-  
+
         try:
             db_session.commit()
         except SQLAlchemyError as ex:
@@ -61,7 +62,6 @@ class CreateTasks(MethodResource, Resource):
         logger.info('Tasks: New tasks received')
         logger.info('——————————————————————————————————————————————————————')
         return make_response(jsonify(result='ok'), 200)
-
 
     def send_task(self, task_to_send):
         task_ids = [task.id for task in task_to_send]
@@ -78,7 +78,7 @@ class CreateTasks(MethodResource, Resource):
                 if chats_list:
                     notification.send_new_tasks(message=display_task_notification(task), send_to=chats_list)
         logger.info(f"Tasks: Tasks to send ids: {task_ids}")
-    
+
     def __add_tasks(self, tasks_to_add, task_to_send):
         task_ids = [task['id'] for task in tasks_to_add]
         for task in tasks_to_add:
@@ -93,7 +93,6 @@ class CreateTasks(MethodResource, Resource):
         logger.info(f"Tasks: Added {len(tasks_to_add)} new tasks.")
         logger.info(f"Tasks: Added task ids: {task_ids}")
 
-
     def __archive_tasks(self, archive_records):
         task_ids = [task.id for task in archive_records]
         for task in archive_records:
@@ -102,12 +101,23 @@ class CreateTasks(MethodResource, Resource):
         logger.info(f"Tasks: Archived {len(archive_records)} tasks.")
         logger.info(f"Tasks: Archived task ids: {task_ids}")
 
-
-    def __unarchive_tasks(self, unarchive_records, task_to_send):
+    def __unarchive_tasks(self, unarchive_records, task_to_send, tasks_dict):
         task_ids = [task.id for task in unarchive_records]
         for task in unarchive_records:
-            task.archive = False
-            task.updated_date = datetime.now()
+            task_from_dict = tasks_dict.get(task.id)
+            self.__update_task_fields(task, task_from_dict)
             task_to_send.append(task)
         logger.info(f"Tasks: Unarchived {len(unarchive_records)} tasks.")
         logger.info(f"Tasks: Unarchived task ids: {task_ids}")
+
+    def __update_task_fields(self, task, task_from_dict):
+        task.title = task_from_dict['title']
+        task.name_organization = task_from_dict['name_organization']
+        task.category_id = task_from_dict['category_id']
+        task.bonus = task_from_dict['bonus']
+        task.location = task_from_dict['location']
+        task.link = task_from_dict['link']
+        task.description = task_from_dict['description']
+        task.deadline = datetime.strptime(task_from_dict['deadline'], '%d.%m.%Y').date()
+        task.archive = False
+        task.updated_date = datetime.now()
